@@ -1,0 +1,1324 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CGM 확산-반응 랩</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    color-scheme: light;
+    --page:      #f9f9f7;
+    --surface:   #fcfcfb;
+    --surface-2: #f3f2ee;
+    --text-1:    #0b0b0b;
+    --text-2:    #52514e;
+    --text-3:    #898781;
+    --grid:      #e1e0d9;
+    --base:      #c3c2b7;
+    --border:    rgba(11,11,11,0.10);
+    --border-strong: rgba(11,11,11,0.16);
+    --series-signal:  #2a78d6; /* blue: actual measured signal */
+    --series-ideal:   #eb6834; /* orange: ideal diffusion-limited reference */
+    --series-isf:     #1baf7a; /* aqua: ISF / sensitivity-stability series */
+    --series-pos:     #2a78d6; /* diverging + */
+    --series-neg:     #e34948; /* diverging - */
+    --status-good:    #0ca30c;
+    --status-warn:    #b8790a;
+    --status-crit:    #d03b3b;
+    --status-good-bg: rgba(12,163,12,0.10);
+    --status-warn-bg: rgba(250,178,25,0.16);
+    --status-crit-bg: rgba(208,59,59,0.10);
+    --accent-wash:    rgba(42,120,214,0.08);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      color-scheme: dark;
+      --page:      #0d0d0d;
+      --surface:   #1a1a19;
+      --surface-2: #212120;
+      --text-1:    #ffffff;
+      --text-2:    #c3c2b7;
+      --text-3:    #898781;
+      --grid:      #2c2c2a;
+      --base:      #383835;
+      --border:    rgba(255,255,255,0.10);
+      --border-strong: rgba(255,255,255,0.18);
+      --series-signal:  #3987e5;
+      --series-ideal:   #d95926;
+      --series-isf:     #199e70;
+      --series-pos:     #3987e5;
+      --series-neg:     #e66767;
+      --status-good:    #0ca30c;
+      --status-warn:    #fab219;
+      --status-crit:    #e66767;
+      --status-good-bg: rgba(12,163,12,0.16);
+      --status-warn-bg: rgba(250,178,25,0.14);
+      --status-crit-bg: rgba(230,103,103,0.14);
+      --accent-wash:    rgba(57,135,229,0.12);
+    }
+  }
+  :root[data-theme="dark"]{
+    color-scheme: dark;
+    --page:      #0d0d0d;
+    --surface:   #1a1a19;
+    --surface-2: #212120;
+    --text-1:    #ffffff;
+    --text-2:    #c3c2b7;
+    --text-3:    #898781;
+    --grid:      #2c2c2a;
+    --base:      #383835;
+    --border:    rgba(255,255,255,0.10);
+    --border-strong: rgba(255,255,255,0.18);
+    --series-signal:  #3987e5;
+    --series-ideal:   #d95926;
+    --series-isf:     #199e70;
+    --series-pos:     #3987e5;
+    --series-neg:     #e66767;
+    --status-good:    #0ca30c;
+    --status-warn:    #fab219;
+    --status-crit:    #e66767;
+    --status-good-bg: rgba(12,163,12,0.16);
+    --status-warn-bg: rgba(250,178,25,0.14);
+    --status-crit-bg: rgba(230,103,103,0.14);
+    --accent-wash:    rgba(57,135,229,0.12);
+  }
+
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--page);
+    color:var(--text-1);
+    font-family:"IBM Plex Sans KR","IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+    padding-inline:24px;
+    padding-block:28px 60px;
+  }
+  .mono{ font-family:"IBM Plex Mono",ui-monospace,monospace; font-variant-numeric: tabular-nums; }
+  .wrap{ max-width:1180px; margin:0 auto; display:flex; flex-direction:column; gap:20px; }
+
+  header.page-head{ display:flex; flex-direction:column; gap:8px; max-width:820px; }
+  .eyebrow{
+    font-family:"IBM Plex Mono",monospace; font-size:12px; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--series-signal); font-weight:600;
+  }
+  h1{ font-size:clamp(24px,3.4vw,32px); line-height:1.2; margin:0; font-weight:700; text-wrap:balance; }
+  .lede{ font-size:15px; line-height:1.65; color:var(--text-2); margin:0; }
+  .lede b{ color:var(--text-1); font-weight:600; }
+
+  /* ---- control rail ---- */
+  .panel{
+    background:var(--surface);
+    border:1px solid var(--border);
+    border-radius:12px;
+  }
+  .rail{ padding:18px 20px; display:flex; flex-direction:column; gap:16px; }
+  .rail-top{ display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .rail-title{ font-size:13px; font-weight:600; color:var(--text-2); text-transform:uppercase; letter-spacing:.04em; }
+  .presets{ display:flex; gap:6px; flex-wrap:wrap; }
+  .preset-btn{
+    font-family:inherit; font-size:12.5px; font-weight:500; color:var(--text-2);
+    background:var(--surface-2); border:1px solid var(--border); border-radius:7px;
+    padding:6px 11px; cursor:pointer; transition:background .12s,color .12s,border-color .12s;
+  }
+  .preset-btn:hover{ background:var(--accent-wash); border-color:var(--border-strong); color:var(--text-1); }
+  .preset-btn:focus-visible{ outline:2px solid var(--series-signal); outline-offset:2px; }
+
+  .controls-grid{
+    display:grid; grid-template-columns:repeat(4,1fr); gap:18px 22px;
+  }
+  @media (max-width:860px){ .controls-grid{ grid-template-columns:repeat(2,1fr); } }
+  @media (max-width:480px){ .controls-grid{ grid-template-columns:1fr; } }
+
+  .ctrl{ display:flex; flex-direction:column; gap:6px; }
+  .ctrl-label-row{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+  .ctrl-label{ font-size:13px; color:var(--text-2); font-weight:500; }
+  .ctrl-value{ font-size:13.5px; font-weight:600; color:var(--text-1); white-space:nowrap; }
+  input[type="range"]{
+    -webkit-appearance:none; appearance:none; width:100%; height:20px; background:transparent; cursor:pointer; margin:0;
+  }
+  input[type="range"]::-webkit-slider-runnable-track{ height:4px; background:var(--base); border-radius:2px; }
+  input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none; appearance:none; width:16px; height:16px; margin-top:-6px;
+    border-radius:50%; background:var(--series-signal); border:2px solid var(--surface); box-shadow:0 0 0 1px var(--border-strong);
+  }
+  input[type="range"]::-moz-range-track{ height:4px; background:var(--base); border-radius:2px; }
+  input[type="range"]::-moz-range-thumb{
+    width:14px; height:14px; border-radius:50%; background:var(--series-signal); border:2px solid var(--surface); box-shadow:0 0 0 1px var(--border-strong);
+  }
+  input[type="range"]:focus-visible::-webkit-slider-thumb{ outline:2px solid var(--series-signal); outline-offset:2px; }
+  .ctrl-hint{ font-size:11.5px; color:var(--text-3); }
+
+  /* ---- KPI strip ---- */
+  .kpi-strip{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+  @media (max-width:760px){ .kpi-strip{ grid-template-columns:repeat(2,1fr); } }
+  .kpi{
+    background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:16px 18px;
+    display:flex; flex-direction:column; gap:6px; min-width:0;
+  }
+  .kpi-label{ font-size:12px; color:var(--text-3); font-weight:500; text-transform:uppercase; letter-spacing:.04em; }
+  .kpi-value{ font-size:26px; font-weight:600; font-family:"IBM Plex Mono",monospace; letter-spacing:-0.01em; }
+  .kpi-sub{ font-size:12.5px; color:var(--text-2); }
+  .status-chip{
+    display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:600;
+    padding:4px 10px 4px 8px; border-radius:999px; width:fit-content;
+  }
+  .status-chip .dot{ width:8px; height:8px; border-radius:50%; flex:none; }
+  .status-chip.good{ background:var(--status-good-bg); color:var(--status-good); }
+  .status-chip.good .dot{ background:var(--status-good); }
+  .status-chip.warn{ background:var(--status-warn-bg); color:var(--status-warn); }
+  .status-chip.warn .dot{ background:var(--status-warn); }
+  .status-chip.crit{ background:var(--status-crit-bg); color:var(--status-crit); }
+  .status-chip.crit .dot{ background:var(--status-crit); }
+
+  /* ---- chart grid ---- */
+  .chart-grid{ display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+  @media (max-width:900px){ .chart-grid{ grid-template-columns:1fr; } }
+  .chart-card{ padding:18px 18px 14px; display:flex; flex-direction:column; gap:2px; }
+  .chart-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; margin-bottom:8px; flex-wrap:wrap; }
+  .chart-title{ font-size:14.5px; font-weight:600; }
+  .chart-desc{ font-size:12px; color:var(--text-3); margin-top:2px; max-width:38ch; }
+  .legend{ display:flex; gap:12px; flex-wrap:wrap; }
+  .legend-item{ display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-2); white-space:nowrap; }
+  .legend-swatch{ width:14px; height:2px; border-radius:2px; flex:none; }
+  .legend-swatch.dash{ background-image:linear-gradient(90deg, currentColor 60%, transparent 0%); background-size:6px 2px; background-color:transparent; }
+  .legend-dot{ width:9px; height:9px; border-radius:50%; flex:none; }
+
+  .chart-svg-wrap{ position:relative; width:100%; }
+  svg.chart-svg{ width:100%; height:auto; display:block; overflow:visible; }
+  .tick-label{ font-family:"IBM Plex Mono",monospace; font-size:10.5px; fill:var(--text-3); }
+  .axis-title{ font-family:"IBM Plex Sans",sans-serif; font-size:11px; fill:var(--text-3); }
+  .grid-line{ stroke:var(--grid); stroke-width:1; }
+  .base-line{ stroke:var(--base); stroke-width:1; }
+
+  .tooltip{
+    position:absolute; pointer-events:none; z-index:5; opacity:0; transition:opacity .08s;
+    background:var(--surface-2); border:1px solid var(--border-strong); border-radius:8px;
+    padding:8px 10px; font-size:12px; min-width:150px; box-shadow:0 4px 14px rgba(0,0,0,0.14);
+  }
+  .tooltip.show{ opacity:1; }
+  .tooltip-x{ font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:var(--text-3); margin-bottom:5px; }
+  .tooltip-row{ display:flex; align-items:center; gap:7px; justify-content:space-between; }
+  .tooltip-row + .tooltip-row{ margin-top:3px; }
+  .tooltip-key{ display:flex; align-items:center; gap:6px; color:var(--text-2); font-size:11.5px; }
+  .tooltip-swatch{ width:10px; height:2px; border-radius:2px; flex:none; }
+  .tooltip-val{ font-family:"IBM Plex Mono",monospace; font-weight:600; font-size:12.5px; color:var(--text-1); }
+
+  /* ---- profile diagram ---- */
+  .profile-figures{ display:flex; gap:18px; margin-top:10px; flex-wrap:wrap; }
+  .fig{ display:flex; flex-direction:column; gap:2px; min-width:120px; }
+  .fig-label{ font-size:11.5px; color:var(--text-3); }
+  .fig-value{ font-family:"IBM Plex Mono",monospace; font-size:18px; font-weight:600; }
+  .fig-value small{ font-size:11px; font-weight:500; color:var(--text-3); }
+
+  /* ---- wide panels (5 & 6) ---- */
+  .panel-desc{ font-size:12.5px; color:var(--text-2); line-height:1.55; max-width:70ch; margin-top:2px; }
+  .mini-controls{ display:grid; grid-template-columns:repeat(2,1fr); gap:14px 22px; margin-top:12px; padding:12px 14px; background:var(--surface-2); border-radius:10px; }
+  @media (max-width:560px){ .mini-controls{ grid-template-columns:1fr; } }
+  .split-row{ display:flex; gap:24px; margin-top:14px; align-items:stretch; flex-wrap:wrap; }
+  .split-col{ flex:1 1 300px; min-width:0; }
+  .split-col.narrow{ flex:0 1 300px; }
+  .schematic-figs{ display:flex; flex-wrap:wrap; gap:14px 20px; margin-top:8px; }
+  .stacked-charts{ display:flex; flex-direction:column; gap:4px; margin-top:12px; }
+  .mini-chart-block{ position:relative; }
+  .mini-chart-title{ font-size:11.5px; font-weight:600; color:var(--text-2); margin-bottom:2px; }
+  .callout{
+    display:flex; gap:10px; align-items:flex-start; padding:10px 14px; border-radius:10px;
+    font-size:12.5px; line-height:1.55; margin-top:12px;
+  }
+  .callout.crit{ background:var(--status-crit-bg); color:var(--text-1); }
+  .callout .callout-icon{ font-family:"IBM Plex Mono",monospace; font-weight:700; color:var(--status-crit); flex:none; }
+
+  footer{ font-size:12px; color:var(--text-3); line-height:1.6; max-width:820px; border-top:1px solid var(--border); padding-top:16px; margin-top:4px; }
+
+  @media (prefers-reduced-motion: reduce){ *{ transition:none !important; animation:none !important; } }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="page-head">
+    <div class="eyebrow">CGM 센서 물리모델 · 인터랙티브 시뮬레이터</div>
+    <h1>확산-반응 균형이 신호 선형성을 결정한다</h1>
+    <p class="lede">
+      백금층의 단위시간당 최대 산화처리 능력(<b>V<sub>max</sub></b>)과 외부막의 단위시간당 확산 능력이 만드는
+      경쟁 관계를 무차원 비율 <b>Da = V<sub>max</sub> / (P<sub>mem</sub>·K<sub>m</sub>)</b>로 정의하고,
+      이 비율에 따라 간질액-막 내부 농도차, 측정 전류, 그리고 전류가 실제 포도당 농도를 얼마나 선형적으로
+      추정하는지가 어떻게 달라지는지 직접 조절하며 확인할 수 있습니다.
+    </p>
+  </header>
+
+  <!-- ============ CONTROLS ============ -->
+  <section class="panel rail" aria-label="시뮬레이션 파라미터">
+    <div class="rail-top">
+      <span class="rail-title">설계 파라미터</span>
+      <div class="presets">
+        <button class="preset-btn" id="preset-diff" type="button">확산지배형 (Da≈30)</button>
+        <button class="preset-btn" id="preset-mix" type="button">혼합형 (Da≈3)</button>
+        <button class="preset-btn" id="preset-rxn" type="button">반응지배형 (Da≈0.3)</button>
+      </div>
+    </div>
+
+    <div class="controls-grid">
+      <div class="ctrl">
+        <div class="ctrl-label-row">
+          <label class="ctrl-label" for="s-da">설계 비율 Da (신품 상태)</label>
+          <span class="ctrl-value mono" id="v-da">–</span>
+        </div>
+        <input type="range" id="s-da" min="-100" max="200" step="1" value="48">
+        <div class="ctrl-hint">J<sub>Pt</sub> 용량 ÷ 외부막 확산 용량 — 로그 스케일 (0.1 ~ 100)</div>
+      </div>
+
+      <div class="ctrl">
+        <div class="ctrl-label-row">
+          <label class="ctrl-label" for="s-km">K<sub>m</sub> (Pt 반응 포화 농도)</label>
+          <span class="ctrl-value mono" id="v-km">–</span>
+        </div>
+        <input type="range" id="s-km" min="20" max="200" step="5" value="80">
+        <div class="ctrl-hint">값이 작을수록 저농도에서 백금층이 먼저 포화</div>
+      </div>
+
+      <div class="ctrl">
+        <div class="ctrl-label-row">
+          <label class="ctrl-label" for="s-act">백금 활성도 (바이오파울링)</label>
+          <span class="ctrl-value mono" id="v-act">–</span>
+        </div>
+        <input type="range" id="s-act" min="20" max="100" step="1" value="100">
+        <div class="ctrl-hint">활성 저하 → 유효 V<sub>max</sub>, 유효 Da 동반 감소</div>
+      </div>
+
+      <div class="ctrl">
+        <div class="ctrl-label-row">
+          <label class="ctrl-label" for="s-probe">관찰 지점 ISF 포도당 농도</label>
+          <span class="ctrl-value mono" id="v-probe">–</span>
+        </div>
+        <input type="range" id="s-probe" min="40" max="400" step="5" value="120">
+        <div class="ctrl-hint">농도 프로파일 다이어그램에 사용되는 지점</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ KPI STRIP ============ -->
+  <section class="kpi-strip" aria-label="핵심 지표">
+    <div class="kpi">
+      <span class="kpi-label">유효 설계 비율 Da<sub>eff</sub></span>
+      <span class="kpi-value mono" id="k-da">–</span>
+      <span class="kpi-sub" id="k-da-sub">설계값 × 활성도</span>
+    </div>
+    <div class="kpi">
+      <span class="kpi-label">센서 동작 영역</span>
+      <span class="status-chip good" id="k-regime"><span class="dot"></span><span id="k-regime-text">–</span></span>
+      <span class="kpi-sub" id="k-regime-sub">–</span>
+    </div>
+    <div class="kpi">
+      <span class="kpi-label">선형성 지수 (40–400 mg/dL)</span>
+      <span class="kpi-value mono" id="k-lin">–</span>
+      <span class="kpi-sub" id="k-lin-sub">최대 편차 기준</span>
+    </div>
+    <div class="kpi">
+      <span class="kpi-label">감도 안정성 지수</span>
+      <span class="kpi-value mono" id="k-sens">–</span>
+      <span class="kpi-sub">이상적 막지배 감도 대비</span>
+    </div>
+  </section>
+
+  <!-- ============ CHART GRID ============ -->
+  <section class="chart-grid">
+
+    <!-- Panel 1: concentration profile -->
+    <div class="panel chart-card">
+      <div class="chart-head">
+        <div>
+          <div class="chart-title">① 농도 프로파일 — ISF → 외부막 → 백금층 표면</div>
+          <div class="chart-desc">선택 농도에서 막을 가로지르는 포도당 농도 강하를 보여줍니다.</div>
+        </div>
+      </div>
+      <div class="chart-svg-wrap">
+        <svg class="chart-svg" id="svg-profile" viewBox="0 0 560 300" role="img" aria-label="농도 프로파일 다이어그램"></svg>
+      </div>
+      <div class="profile-figures">
+        <div class="fig">
+          <span class="fig-label">C_ISF (벌크 간질액)</span>
+          <span class="fig-value mono" id="f-cisf">– <small>mg/dL</small></span>
+        </div>
+        <div class="fig">
+          <span class="fig-label">C_membrane (Pt 표면)</span>
+          <span class="fig-value mono" id="f-cmem">– <small>mg/dL</small></span>
+        </div>
+        <div class="fig">
+          <span class="fig-label">농도 강하율</span>
+          <span class="fig-value mono" id="f-drop">– <small>%</small></span>
+        </div>
+        <div class="fig">
+          <span class="fig-label">신호전류 J</span>
+          <span class="fig-value mono" id="f-j">– <small>a.u.</small></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel 2: calibration curve -->
+    <div class="panel chart-card">
+      <div class="chart-head">
+        <div>
+          <div class="chart-title">② 보정곡선 — 신호전류 vs 실제 ISF 포도당 농도</div>
+          <div class="chart-desc">전류가 실제 농도를 얼마나 선형적으로 추정하는지 비교합니다.</div>
+        </div>
+        <div class="legend">
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--series-signal)"></span>실제 신호(모델)</span>
+          <span class="legend-item"><span class="legend-swatch dash" style="color:var(--series-ideal)"></span>이상적 기준선 (Da→∞)</span>
+        </div>
+      </div>
+      <div class="chart-svg-wrap">
+        <svg class="chart-svg" id="svg-calib" viewBox="0 0 560 300" role="img" aria-label="보정곡선 차트"></svg>
+        <div class="tooltip" id="tt-calib"></div>
+      </div>
+    </div>
+
+    <!-- Panel 3: linearity error -->
+    <div class="panel chart-card">
+      <div class="chart-head">
+        <div>
+          <div class="chart-title">③ 선형성 오차 — 선형 기준선 대비 편차</div>
+          <div class="chart-desc">실제 신호를 원점 통과 최적 직선에 맞춘 뒤 남는 편차(%)입니다.</div>
+        </div>
+        <div class="legend">
+          <span class="legend-item"><span class="legend-dot" style="background:var(--series-pos)"></span>기준선보다 높음</span>
+          <span class="legend-item"><span class="legend-dot" style="background:var(--series-neg)"></span>기준선보다 낮음</span>
+        </div>
+      </div>
+      <div class="chart-svg-wrap">
+        <svg class="chart-svg" id="svg-err" viewBox="0 0 560 300" role="img" aria-label="선형성 오차 차트"></svg>
+        <div class="tooltip" id="tt-err"></div>
+      </div>
+    </div>
+
+    <!-- Panel 4: Da sweep performance -->
+    <div class="panel chart-card">
+      <div class="chart-head">
+        <div>
+          <div class="chart-title">④ 설계 비율 Da에 따른 성능 변화</div>
+          <div class="chart-desc">Da를 0.1~100으로 스윕하며 선형성·감도 안정성이 어떻게 변하는지 보여줍니다.</div>
+        </div>
+        <div class="legend">
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--series-signal)"></span>선형성 지수</span>
+          <span class="legend-item"><span class="legend-swatch" style="background:var(--series-isf)"></span>감도 안정성 지수</span>
+        </div>
+      </div>
+      <div class="chart-svg-wrap">
+        <svg class="chart-svg" id="svg-sweep" viewBox="0 0 560 300" role="img" aria-label="Da 스윕 성능 차트"></svg>
+        <div class="tooltip" id="tt-sweep"></div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- ============ Panel 5: membrane hardness / compression artifact ============ -->
+  <section class="panel chart-card" aria-label="외부막 경도와 압박 오차">
+    <div class="chart-head">
+      <div>
+        <div class="chart-title">⑤ 외부막 경도와 압박 오차 — "같은 농도인데 신호가 다르다"</div>
+        <div class="panel-desc">
+          외부막의 경도가 낮으면 조직 압박 같은 물리적 힘에 의해 막이 눌리면서 막 안에 물을 가두는 공간(부피)이
+          줄어듭니다. <b>농도(mg/dL)는 그대로</b>라도 부피가 줄면 그 공간의 <b>글루코스 절대량</b>이 줄어들어 백금층에
+          공급되는 양이 감소하고, 전류가 낮아져 실제보다 낮은 농도로 오판되는 측정 오차가 발생합니다.
+        </div>
+      </div>
+    </div>
+
+    <div class="mini-controls">
+      <div class="ctrl">
+        <div class="ctrl-label-row">
+          <label class="ctrl-label" for="s-hard">외부막 경도 E</label>
+          <span class="ctrl-value mono" id="v-hard">–</span>
+        </div>
+        <input type="range" id="s-hard" min="5" max="100" step="1" value="40">
+        <div class="ctrl-hint">낮을수록 같은 압력에도 더 많이 눌려 압축됨</div>
+      </div>
+      <div class="ctrl">
+        <div class="ctrl-label-row">
+          <label class="ctrl-label" for="s-press">인가 압력 P (조직 압박)</label>
+          <span class="ctrl-value mono" id="v-press">–</span>
+        </div>
+        <input type="range" id="s-press" min="0" max="100" step="1" value="30">
+        <div class="ctrl-hint">누워서 눌리는 등 착용 부위에 가해지는 압력</div>
+      </div>
+    </div>
+
+    <div class="split-row">
+      <div class="split-col narrow">
+        <svg class="chart-svg" id="svg-compress" viewBox="0 0 320 260" role="img" aria-label="막 압축 다이어그램"></svg>
+        <div class="schematic-figs">
+          <div class="fig">
+            <span class="fig-label">부피(신호) 감쇠율</span>
+            <span class="fig-value mono" id="c-atten">– <small>%</small></span>
+          </div>
+          <div class="fig">
+            <span class="fig-label">200 mg/dL 기준 오차</span>
+            <span class="fig-value mono" id="c-err">– <small>mg/dL</small></span>
+          </div>
+        </div>
+        <span class="status-chip good" id="c-regime" style="margin-top:10px;"><span class="dot"></span><span id="c-regime-text">–</span></span>
+      </div>
+      <div class="split-col">
+        <div class="chart-head" style="margin-bottom:2px;">
+          <div class="legend">
+            <span class="legend-item"><span class="legend-swatch dash" style="color:var(--series-ideal)"></span>이상적 기준선 (압박 없음)</span>
+            <span class="legend-item"><span class="legend-swatch" style="background:var(--series-signal)"></span>겉보기(측정) 농도</span>
+          </div>
+        </div>
+        <div class="chart-svg-wrap">
+          <svg class="chart-svg" id="svg-compress-curve" viewBox="0 0 560 300" role="img" aria-label="압박에 따른 겉보기 농도 차트"></svg>
+          <div class="tooltip" id="tt-compress"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Panel 6: severe biofouling paradox ============ -->
+  <section class="panel chart-card" aria-label="심각한 바이오파울링의 역설">
+    <div class="chart-head">
+      <div>
+        <div class="chart-title">⑥ 심각한 바이오파울링의 역설 — 농도는 오르는데 전류는 내려간다</div>
+        <div class="panel-desc">
+          파울링이 극심해지면 <b>글루코스 채널은 거의 막히지만 물의 이동(삼투)은 유지</b>되는 상태가 될 수 있습니다.
+          ISF 포도당이 급상승하면 그 농도차를 해소하려 글루코스가 유입되는 대신 <b>물이 막 밖으로 빠져나가며 글루코스를
+          함께 쓸어내고</b>, 백금층은 남은 글루코스를 계속 소모만 하므로 신호전류는 오히려 줄어드는 역설이 나타납니다.
+        </div>
+      </div>
+    </div>
+
+    <div class="mini-controls">
+      <div class="ctrl">
+        <div class="ctrl-label-row">
+          <label class="ctrl-label" for="s-sigma">파울링 심각도 (글루코스 채널 차단률)</label>
+          <span class="ctrl-value mono" id="v-sigma">–</span>
+        </div>
+        <input type="range" id="s-sigma" min="0" max="98" step="1" value="90">
+        <div class="ctrl-hint">물 투과는 그대로 두고 글루코스 확산만 차단</div>
+      </div>
+      <div class="ctrl">
+        <div class="ctrl-label-row">
+          <label class="ctrl-label" for="s-cspike">ISF 급상승 목표 농도</label>
+          <span class="ctrl-value mono" id="v-cspike">–</span>
+        </div>
+        <input type="range" id="s-cspike" min="150" max="400" step="10" value="350">
+        <div class="ctrl-hint">식후 등 ISF 포도당이 빠르게 오르는 시나리오</div>
+      </div>
+    </div>
+
+    <div class="kpi-strip" style="margin-top:14px;">
+      <div class="kpi">
+        <span class="kpi-label">전류 최저점 도달 시각</span>
+        <span class="kpi-value mono" id="p-cchange">–</span>
+        <span class="kpi-sub" id="p-cchange-sub">그 시점 ISF 농도</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">최저점까지 전류 변화 (파울링)</span>
+        <span class="kpi-value mono" id="p-jchange">–</span>
+        <span class="kpi-sub" id="p-jchange-sub">시작 → 최저점</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">동일 시점, 정상막이라면</span>
+        <span class="kpi-value mono" id="p-jnormal">–</span>
+        <span class="kpi-sub" id="p-jnormal-sub">파울링 없었을 때 전류</span>
+      </div>
+      <div class="kpi">
+        <span class="kpi-label">임상 위험도</span>
+        <span class="status-chip crit" id="p-risk"><span class="dot"></span><span id="p-risk-text">–</span></span>
+      </div>
+    </div>
+
+    <div class="stacked-charts">
+      <div class="mini-chart-block">
+        <div class="mini-chart-title">실제 ISF 포도당 농도 (mg/dL)</div>
+        <svg class="chart-svg" id="svg-para-c" viewBox="0 0 560 150" role="img" aria-label="ISF 농도 시간 변화"></svg>
+        <div class="tooltip" id="tt-para-c"></div>
+      </div>
+      <div class="mini-chart-block">
+        <div class="mini-chart-title" style="display:flex; justify-content:space-between; align-items:center;">
+          <span>백금층 신호전류 (a.u.)</span>
+          <span class="legend">
+            <span class="legend-item"><span class="legend-swatch" style="background:var(--series-isf)"></span>정상막</span>
+            <span class="legend-item"><span class="legend-swatch" style="background:var(--series-neg)"></span>심각한 파울링</span>
+          </span>
+        </div>
+        <svg class="chart-svg" id="svg-para-j" viewBox="0 0 560 150" role="img" aria-label="신호전류 시간 변화"></svg>
+        <div class="tooltip" id="tt-para-j"></div>
+      </div>
+    </div>
+
+    <div class="callout crit">
+      <span class="callout-icon">!</span>
+      <span>이 상태에서는 CGM이 실제로는 고혈당인데 <b>정상 또는 하강하는 값</b>을 표시할 수 있어, 환자가 고혈당을
+      인지하지 못하거나 저혈당으로 오판할 위험이 있습니다. 제안서의 "표면-내부 파울링 속도 차" 설계(내부 채널을
+      글루코스 크기로 제한해 큰 오염물질 침투를 늦추는 구조)가 이 극단적 실패 모드를 지연시키는 핵심 방어선입니다.</span>
+    </div>
+  </section>
+
+  <footer>
+    본 시각화는 나노다공성 백금층-외부막 CGM 설계 제안서에 기술된 원리를 설명하기 위한 단순화된 물리모델입니다.
+    ①~④는 정상상태(steady-state) 모델로, 백금층 반응은 Michaelis–Menten 포화 동역학(V<sub>max</sub>, K<sub>m</sub>),
+    외부막은 Fick 확산(선형, 막 투과계수 P<sub>mem</sub>=1로 정규화)을 가정합니다. ⑤ 압박 오차는 경도 대비 압력에 따른
+    단순 포화형 부피 감쇠 모델이며, ⑥ 파울링 역설은 확산 유입과 삼투에 의한 대류 유출을 함께 고려한 단순화된
+    시간축(동적) 모델입니다. 신호전류 J와 농도는 상대단위(a.u.)이며, 모든 수치는 실제 소자의 정량적 특성치가 아니라
+    설계 방향과 실패 모드를 이해하기 위한 교육적 시뮬레이션입니다.
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---------------- theme-aware color reader ----------------
+  function cssVar(name){
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  // ---------------- physics core ----------------
+  // Normalized model (P_mem = 1):
+  //   steady state:  (C - Cmem) = Da * Km * Cmem / (Km + Cmem)
+  //   => Cmem^2 - (Km*(1+Da) - C) * Cmem - C*Km = 0
+  function solveCmem(C, Da, Km){
+    if (C <= 0) return 0;
+    var b = Km*(1+Da) - C;
+    var c = -C*Km;
+    var disc = b*b - 4*c; // a = 1
+    var sq = Math.sqrt(Math.max(disc,0));
+    var root = (-b + sq) / 2;
+    if (root < 0) root = 0;
+    if (root > C) root = C;
+    return root;
+  }
+  function signalJ(C, Da, Km){
+    var cmem = solveCmem(C, Da, Km);
+    return C - cmem;
+  }
+  function idealJ(C){ return C; } // Da -> infinity asymptote, Pmem = 1
+
+  var C_MIN = 40, C_MAX = 400, C_STEPS = 72;
+  function sweepC(){
+    var arr = [];
+    for (var i=0;i<=C_STEPS;i++){
+      arr.push(C_MIN + (C_MAX-C_MIN)*i/C_STEPS);
+    }
+    return arr;
+  }
+  var C_ARR = sweepC();
+
+  // origin-forced OLS slope: minimizes sum((J - m*C)^2)
+  function fitSlopeThroughOrigin(cArr, jArr){
+    var num=0, den=0;
+    for (var i=0;i<cArr.length;i++){ num += cArr[i]*jArr[i]; den += cArr[i]*cArr[i]; }
+    return den>0 ? num/den : 1;
+  }
+  function maxAbsDeviationPct(cArr, jArr, slope){
+    var m = 0;
+    for (var i=0;i<cArr.length;i++){
+      if (cArr[i] <= 0) continue;
+      var fit = slope*cArr[i];
+      if (fit <= 1e-9) continue;
+      var dev = Math.abs((jArr[i]-fit)/fit)*100;
+      if (dev > m) m = dev;
+    }
+    return m;
+  }
+  function linearityIndex(Da, Km){
+    var jArr = C_ARR.map(function(c){ return signalJ(c, Da, Km); });
+    var slope = fitSlopeThroughOrigin(C_ARR, jArr);
+    var maxDev = maxAbsDeviationPct(C_ARR, jArr, slope);
+    var idx = 100 - Math.min(maxDev, 100);
+    return { index: Math.max(0,idx), slope: slope, maxDev: maxDev };
+  }
+  function sensitivityIndex(Da){ return (Da/(1+Da))*100; }
+
+  // ---------------- state ----------------
+  var state = { daDesign: 15, km: 80, activity: 100, probe: 120, hardness: 40, pressure: 30, sigma: 0.90, cspike: 350 };
+
+  function daFromSlider(v){ return Math.pow(10, v/100); } // slider -100..200 -> 0.1..100
+  function sliderFromDa(da){ return Math.round(Math.log10(da)*100); }
+
+  var elDa = document.getElementById('s-da');
+  var elKm = document.getElementById('s-km');
+  var elAct = document.getElementById('s-act');
+  var elProbe = document.getElementById('s-probe');
+  var elHard = document.getElementById('s-hard');
+  var elPress = document.getElementById('s-press');
+  var elSigma = document.getElementById('s-sigma');
+  var elCspike = document.getElementById('s-cspike');
+
+  function fmtDa(d){ return d < 1 ? d.toFixed(2) : (d < 10 ? d.toFixed(1) : Math.round(d).toString()); }
+  function fmt0(n){ return Math.round(n).toString(); }
+  function fmt1(n){ return n.toFixed(1); }
+
+  // ---------------- SVG line-chart helper ----------------
+  var CH_W = 560, CH_H = 300;
+  var PAD = { l:44, r:16, t:28, b:34 };
+  var PLOT_W = CH_W - PAD.l - PAD.r;
+  var PLOT_H = CH_H - PAD.t - PAD.b;
+
+  function svgEl(tag, attrs){
+    var el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+    for (var k in attrs){ el.setAttribute(k, attrs[k]); }
+    return el;
+  }
+  function clearSvg(svg){ while(svg.firstChild) svg.removeChild(svg.firstChild); }
+
+  function drawAxes(svg, xTicks, xFmt, yTicks, yFmt, xTitle, yTitle, xScale, yScale){
+    var grid = cssVar('--grid'), base = cssVar('--base'), tickCol = cssVar('--text-3');
+    yTicks.forEach(function(yt){
+      var y = yScale(yt);
+      svg.appendChild(svgEl('line', {x1:PAD.l, x2:PAD.l+PLOT_W, y1:y, y2:y, class:'grid-line'}));
+      var t = svgEl('text', {x:PAD.l-8, y:y+3, class:'tick-label', 'text-anchor':'end'});
+      t.textContent = yFmt(yt);
+      svg.appendChild(t);
+    });
+    xTicks.forEach(function(xt){
+      var x = xScale(xt);
+      var t = svgEl('text', {x:x, y:PAD.t+PLOT_H+18, class:'tick-label', 'text-anchor':'middle'});
+      t.textContent = xFmt(xt);
+      svg.appendChild(t);
+    });
+    svg.appendChild(svgEl('line', {x1:PAD.l, x2:PAD.l+PLOT_W, y1:PAD.t+PLOT_H, y2:PAD.t+PLOT_H, class:'base-line'}));
+    if (yTitle){
+      var yt2 = svgEl('text', {x:12, y:12, class:'axis-title'});
+      yt2.textContent = yTitle;
+      svg.appendChild(yt2);
+    }
+    if (xTitle){
+      var xt2 = svgEl('text', {x:PAD.l+PLOT_W, y:CH_H-2, class:'axis-title', 'text-anchor':'end'});
+      xt2.textContent = xTitle;
+      svg.appendChild(xt2);
+    }
+  }
+
+  function pathFor(xs, ys, xScale, yScale){
+    var d = '';
+    for (var i=0;i<xs.length;i++){
+      var x = xScale(xs[i]), y = yScale(ys[i]);
+      d += (i===0?'M':'L') + x.toFixed(2) + ',' + y.toFixed(2) + ' ';
+    }
+    return d.trim();
+  }
+
+  // ===================================================================
+  // Panel 1: concentration profile diagram
+  // ===================================================================
+  var svgProfile = document.getElementById('svg-profile');
+  function renderProfile(){
+    clearSvg(svgProfile);
+    var Da = state.daEff, Km = state.km, C = state.probe;
+    var Cmem = solveCmem(C, Da, Km);
+    var J = C - Cmem;
+
+    var top = 36, bottom = 250, left = 60, right = 520;
+    var scaleV = 400; // mg/dL maps to bottom-top
+    function yOf(v){ return bottom - (v/scaleV)*(bottom-top); }
+
+    var isfX0 = left, isfX1 = 168;
+    var memX0 = 168, memX1 = 352;
+    var ptX0 = 352, ptX1 = right;
+
+    var colIsf = cssVar('--series-isf');
+    var colSig = cssVar('--series-signal');
+    var textMuted = cssVar('--text-3');
+    var grid = cssVar('--grid');
+
+    // gridlines (concentration)
+    [0,100,200,300,400].forEach(function(v){
+      var y = yOf(v);
+      svgProfile.appendChild(svgEl('line', {x1:left, x2:right, y1:y, y2:y, class:'grid-line'}));
+      var t = svgEl('text', {x:left-8, y:y+3, class:'tick-label', 'text-anchor':'end'});
+      t.textContent = v;
+      svgProfile.appendChild(t);
+    });
+    var yl = svgEl('text', {x:10, y:14, class:'axis-title'}); yl.textContent = '농도 (mg/dL)';
+    svgProfile.appendChild(yl);
+
+    // Km reference dashed line
+    var yKm = yOf(Km);
+    var kmLine = svgEl('line', {x1:left, x2:right, y1:yKm, y2:yKm, stroke:textMuted, 'stroke-width':1, 'stroke-dasharray':'3,4', opacity:0.7});
+    svgProfile.appendChild(kmLine);
+    var kmLabel = svgEl('text', {x:right, y:yKm-4, class:'tick-label', 'text-anchor':'end'});
+    kmLabel.textContent = 'Km = ' + fmt0(Km);
+    svgProfile.appendChild(kmLabel);
+
+    // ISF block
+    var yIsf = yOf(C);
+    svgProfile.appendChild(svgEl('rect', {x:isfX0, y:yIsf, width:isfX1-isfX0, height:bottom-yIsf, fill:colIsf, opacity:0.85, rx:2}));
+    var lblIsf = svgEl('text', {x:(isfX0+isfX1)/2, y:bottom+16, class:'tick-label', 'text-anchor':'middle'});
+    lblIsf.textContent = 'ISF (벌크)';
+    svgProfile.appendChild(lblIsf);
+
+    // membrane gradient wedge (linear Fick profile from C at left to Cmem at right)
+    var yMemL = yOf(C), yMemR = yOf(Cmem);
+    var gradId = 'memGrad';
+    var defs = svgEl('defs', {});
+    var grad = svgEl('linearGradient', {id:gradId, x1:'0%', y1:'0%', x2:'100%', y2:'0%'});
+    var stop1 = svgEl('stop', {offset:'0%', 'stop-color':colIsf, 'stop-opacity':0.85});
+    var stop2 = svgEl('stop', {offset:'100%', 'stop-color':colSig, 'stop-opacity':0.85});
+    grad.appendChild(stop1); grad.appendChild(stop2); defs.appendChild(grad);
+    svgProfile.appendChild(defs);
+    var poly = svgEl('polygon', {
+      points: memX0+','+yMemL+' '+memX1+','+yMemR+' '+memX1+','+bottom+' '+memX0+','+bottom,
+      fill:'url(#'+gradId+')'
+    });
+    svgProfile.appendChild(poly);
+    var lblMem = svgEl('text', {x:(memX0+memX1)/2, y:bottom+16, class:'tick-label', 'text-anchor':'middle'});
+    lblMem.textContent = '외부막 (확산)';
+    svgProfile.appendChild(lblMem);
+
+    // Pt block
+    var yPt = yOf(Cmem);
+    svgProfile.appendChild(svgEl('rect', {x:ptX0, y:yPt, width:ptX1-ptX0, height:bottom-yPt, fill:colSig, opacity:0.85, rx:2}));
+    var lblPt = svgEl('text', {x:(ptX0+ptX1)/2, y:bottom+16, class:'tick-label', 'text-anchor':'middle'});
+    lblPt.textContent = '백금층 표면';
+    svgProfile.appendChild(lblPt);
+
+    // profile line on top (ISF -> membrane slope -> Pt flat)
+    var lineD = 'M'+isfX0+','+yMemL+' L'+memX0+','+yMemL+' L'+memX1+','+yMemR+' L'+ptX1+','+yMemR;
+    svgProfile.appendChild(svgEl('path', {d:lineD, fill:'none', stroke:cssVar('--text-1'), 'stroke-width':2, 'stroke-linejoin':'round'}));
+
+    // reaction arrow marker at Pt surface
+    var arrowY = yPt - 10 < top ? top : yPt - 10;
+    var lblRxn = svgEl('text', {x:(ptX0+ptX1)/2, y: Math.max(top+10, yPt-8), class:'tick-label', 'text-anchor':'middle', fill:colSig});
+    lblRxn.textContent = '산화 반응 소모 ↓';
+    svgProfile.appendChild(lblRxn);
+
+    // update numeric readouts
+    document.getElementById('f-cisf').innerHTML = fmt0(C) + ' <small>mg/dL</small>';
+    document.getElementById('f-cmem').innerHTML = fmt1(Cmem) + ' <small>mg/dL</small>';
+    document.getElementById('f-drop').innerHTML = fmt1((1 - Cmem/C)*100) + ' <small>%</small>';
+    document.getElementById('f-j').innerHTML = fmt1(J) + ' <small>a.u.</small>';
+  }
+
+  // ===================================================================
+  // Panel 2: calibration curve (with crosshair)
+  // ===================================================================
+  var svgCalib = document.getElementById('svg-calib');
+  var ttCalib = document.getElementById('tt-calib');
+  function renderCalib(){
+    clearSvg(svgCalib);
+    var Da = state.daEff, Km = state.km;
+    var jArr = C_ARR.map(function(c){ return signalJ(c, Da, Km); });
+    var idealArr = C_ARR.map(idealJ);
+    var yMax = Math.max.apply(null, idealArr) * 1.05;
+
+    function xScale(c){ return PAD.l + (c-C_MIN)/(C_MAX-C_MIN)*PLOT_W; }
+    function yScale(v){ return PAD.t + PLOT_H - (v/yMax)*PLOT_H; }
+
+    drawAxes(svgCalib, [40,100,200,300,400], function(v){return v;}, [0,100,200,300,400].filter(function(v){return v<=yMax;}),
+      function(v){return v;}, 'C_ISF (mg/dL)', 'J (a.u.)', xScale, yScale);
+
+    svgCalib.appendChild(svgEl('path', {d:pathFor(C_ARR, idealArr, xScale, yScale), fill:'none', stroke:cssVar('--series-ideal'), 'stroke-width':2, 'stroke-dasharray':'6,4'}));
+    svgCalib.appendChild(svgEl('path', {d:pathFor(C_ARR, jArr, xScale, yScale), fill:'none', stroke:cssVar('--series-signal'), 'stroke-width':2.5, 'stroke-linejoin':'round'}));
+
+    attachCrosshair(svgCalib, ttCalib, C_ARR, [
+      {arr:jArr, color:cssVar('--series-signal'), name:'실제 신호'},
+      {arr:idealArr, color:cssVar('--series-ideal'), name:'이상적 기준선'}
+    ], xScale, yScale, function(c){ return c.toFixed(0)+' mg/dL'; }, function(v){ return v.toFixed(1)+' a.u.'; });
+  }
+
+  // ===================================================================
+  // Panel 3: linearity error (diverging)
+  // ===================================================================
+  var svgErr = document.getElementById('svg-err');
+  var ttErr = document.getElementById('tt-err');
+  function renderErr(){
+    clearSvg(svgErr);
+    var Da = state.daEff, Km = state.km;
+    var jArr = C_ARR.map(function(c){ return signalJ(c, Da, Km); });
+    var slope = fitSlopeThroughOrigin(C_ARR, jArr);
+    var devArr = C_ARR.map(function(c,i){
+      var fit = slope*c;
+      return fit>1e-9 ? ((jArr[i]-fit)/fit)*100 : 0;
+    });
+    var maxAbs = Math.max(10, Math.max.apply(null, devArr.map(Math.abs)) * 1.15);
+
+    function xScale(c){ return PAD.l + (c-C_MIN)/(C_MAX-C_MIN)*PLOT_W; }
+    function yScale(v){ return PAD.t + PLOT_H/2 - (v/maxAbs)*(PLOT_H/2); }
+
+    var yTicks = [-Math.round(maxAbs*0.66/5)*5, 0, Math.round(maxAbs*0.66/5)*5].filter(function(v,i,a){return a.indexOf(v)===i;});
+    drawAxes(svgErr, [40,100,200,300,400], function(v){return v;}, yTicks, function(v){ return (v>0?'+':'')+v; },
+      'C_ISF (mg/dL)', '편차 (%)', xScale, yScale);
+
+    // zero baseline emphasized
+    var y0 = yScale(0);
+    svgErr.appendChild(svgEl('line', {x1:PAD.l, x2:PAD.l+PLOT_W, y1:y0, y2:y0, stroke:cssVar('--base'), 'stroke-width':1.5}));
+
+    // split path into positive/negative colored segments using area fill
+    var posColor = cssVar('--series-pos'), negColor = cssVar('--series-neg');
+    var areaPos = 'M'+xScale(C_ARR[0])+','+y0+' ';
+    var areaNeg = 'M'+xScale(C_ARR[0])+','+y0+' ';
+    C_ARR.forEach(function(c,i){
+      var y = yScale(devArr[i]);
+      areaPos += 'L'+xScale(c)+','+(devArr[i]>=0?y:y0)+' ';
+      areaNeg += 'L'+xScale(c)+','+(devArr[i]<0?y:y0)+' ';
+    });
+    areaPos += 'L'+xScale(C_ARR[C_ARR.length-1])+','+y0+' Z';
+    areaNeg += 'L'+xScale(C_ARR[C_ARR.length-1])+','+y0+' Z';
+    svgErr.appendChild(svgEl('path', {d:areaPos, fill:posColor, opacity:0.12}));
+    svgErr.appendChild(svgEl('path', {d:areaNeg, fill:negColor, opacity:0.12}));
+    svgErr.appendChild(svgEl('path', {d:pathFor(C_ARR, devArr, xScale, yScale), fill:'none', stroke:cssVar('--series-signal'), 'stroke-width':2}));
+
+    attachCrosshair(svgErr, ttErr, C_ARR, [
+      {arr:devArr, color:cssVar('--series-signal'), name:'편차'}
+    ], xScale, yScale, function(c){ return c.toFixed(0)+' mg/dL'; }, function(v){ return (v>=0?'+':'')+v.toFixed(1)+'%'; });
+  }
+
+  // ===================================================================
+  // Panel 4: Da sweep performance
+  // ===================================================================
+  var svgSweep = document.getElementById('svg-sweep');
+  var ttSweep = document.getElementById('tt-sweep');
+  var DA_MIN=0.1, DA_MAX=100;
+  var DA_ARR = (function(){
+    var arr=[]; var n=48;
+    for (var i=0;i<=n;i++){ arr.push(Math.pow(10, Math.log10(DA_MIN) + (Math.log10(DA_MAX)-Math.log10(DA_MIN))*i/n)); }
+    return arr;
+  })();
+  function renderSweep(){
+    clearSvg(svgSweep);
+    var Km = state.km;
+    var linArr = DA_ARR.map(function(d){ return linearityIndex(d, Km).index; });
+    var sensArr = DA_ARR.map(function(d){ return sensitivityIndex(d); });
+
+    function xScale(d){ return PAD.l + (Math.log10(d)-Math.log10(DA_MIN))/(Math.log10(DA_MAX)-Math.log10(DA_MIN))*PLOT_W; }
+    function yScale(v){ return PAD.t + PLOT_H - (v/100)*PLOT_H; }
+
+    // recommended region Da >= 10
+    var xRecStart = xScale(10);
+    svgSweep.appendChild(svgEl('rect', {x:xRecStart, y:PAD.t, width:(PAD.l+PLOT_W-xRecStart), height:PLOT_H, fill:cssVar('--status-good'), opacity:0.08}));
+    var recLbl = svgEl('text', {x:PAD.l+PLOT_W-4, y:PAD.t+13, class:'tick-label', 'text-anchor':'end', fill:cssVar('--status-good')});
+    recLbl.textContent = '권장: Da ≥ 10';
+    svgSweep.appendChild(recLbl);
+
+    drawAxes(svgSweep, [0.1,1,10,100], function(v){ return v<1? v.toFixed(1) : v; }, [0,25,50,75,100], function(v){return v;},
+      'Da (로그 스케일)', '지수 (%)', xScale, yScale);
+
+    svgSweep.appendChild(svgEl('path', {d:pathFor(DA_ARR, sensArr, xScale, yScale), fill:'none', stroke:cssVar('--series-isf'), 'stroke-width':2}));
+    svgSweep.appendChild(svgEl('path', {d:pathFor(DA_ARR, linArr, xScale, yScale), fill:'none', stroke:cssVar('--series-signal'), 'stroke-width':2.5}));
+
+    // current Da marker
+    var daEff = Math.min(Math.max(state.daEff, DA_MIN), DA_MAX);
+    var xCur = xScale(daEff);
+    svgSweep.appendChild(svgEl('line', {x1:xCur, x2:xCur, y1:PAD.t, y2:PAD.t+PLOT_H, stroke:cssVar('--text-1'), 'stroke-width':1, 'stroke-dasharray':'2,3', opacity:0.6}));
+    var curLin = linearityIndex(daEff, Km).index, curSens = sensitivityIndex(daEff);
+    [ {v:curLin, color:cssVar('--series-signal')}, {v:curSens, color:cssVar('--series-isf')} ].forEach(function(p){
+      var c = svgEl('circle', {cx:xCur, cy:yScale(p.v), r:5, fill:p.color, stroke:cssVar('--surface'), 'stroke-width':2});
+      svgSweep.appendChild(c);
+    });
+
+    attachCrosshair(svgSweep, ttSweep, DA_ARR, [
+      {arr:linArr, color:cssVar('--series-signal'), name:'선형성 지수'},
+      {arr:sensArr, color:cssVar('--series-isf'), name:'감도 안정성 지수'}
+    ], xScale, yScale, function(d){ return 'Da = '+fmtDa(d); }, function(v){ return v.toFixed(1)+'%'; });
+  }
+
+  // ---------------- shared crosshair/tooltip ----------------
+  function attachCrosshair(svg, tooltipEl, xArr, series, xScale, yScale, xFmt, yFmt, geomOverride){
+    var g = geomOverride || { padL:PAD.l, padT:PAD.t, plotW:PLOT_W, plotH:PLOT_H };
+    var hitRect = svgEl('rect', {x:g.padL, y:g.padT, width:g.plotW, height:g.plotH, fill:'transparent'});
+    var crosshair = svgEl('line', {x1:0,x2:0,y1:g.padT,y2:g.padT+g.plotH, stroke:cssVar('--text-3'), 'stroke-width':1, opacity:0, 'pointer-events':'none'});
+    svg.appendChild(crosshair);
+    var dots = series.map(function(s){
+      var d = svgEl('circle', {r:5, fill:s.color, stroke:cssVar('--surface'), 'stroke-width':2, opacity:0, 'pointer-events':'none'});
+      svg.appendChild(d);
+      return d;
+    });
+    svg.appendChild(hitRect);
+
+    function nearestIndex(mx){
+      // mx in SVG user units already
+      var lo=0, hi=xArr.length-1;
+      // linear search fine for our small arrays; binary would be premature
+      var best=0, bestD=Infinity;
+      for (var i=0;i<xArr.length;i++){
+        var xp = xScale(xArr[i]);
+        var dd = Math.abs(xp-mx);
+        if (dd<bestD){ bestD=dd; best=i; }
+      }
+      return best;
+    }
+
+    function showAt(mx){
+      var idx = nearestIndex(mx);
+      var x = xArr[idx];
+      var xp = xScale(x);
+      crosshair.setAttribute('x1', xp); crosshair.setAttribute('x2', xp); crosshair.setAttribute('opacity', 1);
+      var rows = '';
+      series.forEach(function(s, si){
+        var yp = yScale(s.arr[idx]);
+        dots[si].setAttribute('cx', xp); dots[si].setAttribute('cy', yp); dots[si].setAttribute('opacity', 1);
+        rows += '<div class="tooltip-row"><span class="tooltip-key"><span class="tooltip-swatch" style="background:'+s.color+'"></span>'+s.name+'</span><span class="tooltip-val">'+yFmt(s.arr[idx])+'</span></div>';
+      });
+      tooltipEl.innerHTML = '<div class="tooltip-x">'+xFmt(x)+'</div>' + rows;
+      tooltipEl.classList.add('show');
+      var wrapRect = svg.parentElement.getBoundingClientRect();
+      var svgRect = svg.getBoundingClientRect();
+      var scaleX = svgRect.width / CH_W;
+      var pxLeft = xp*scaleX;
+      var ttW = 170;
+      if (pxLeft + ttW + 14 > svgRect.width) pxLeft = pxLeft - ttW - 14; else pxLeft = pxLeft + 10;
+      tooltipEl.style.left = pxLeft + 'px';
+      tooltipEl.style.top = '8px';
+    }
+    function hide(){
+      crosshair.setAttribute('opacity', 0);
+      dots.forEach(function(d){ d.setAttribute('opacity', 0); });
+      tooltipEl.classList.remove('show');
+    }
+
+    function toSvgPoint(evt){
+      var pt = svg.createSVGPoint();
+      pt.x = evt.clientX; pt.y = evt.clientY;
+      var ctm = svg.getScreenCTM();
+      if (!ctm) return {x:0,y:0};
+      var loc = pt.matrixTransform(ctm.inverse());
+      return loc;
+    }
+    svg.addEventListener('pointermove', function(evt){
+      var p = toSvgPoint(evt);
+      if (p.x < g.padL || p.x > g.padL+g.plotW){ hide(); return; }
+      showAt(p.x);
+    });
+    svg.addEventListener('pointerleave', hide);
+  }
+
+  // ===================================================================
+  // Panel 5: membrane hardness -> compression -> absolute-amount error
+  // ===================================================================
+  // Simplified saturating attenuation: a harder membrane (E) resists a given
+  // pressure (P) better. f=1 -> no volume loss; f->0 -> fully collapsed.
+  function compressionFactor(E, P){ return E / (E + P); }
+
+  var svgCompress = document.getElementById('svg-compress');
+  var svgCompressCurve = document.getElementById('svg-compress-curve');
+  var ttCompress = document.getElementById('tt-compress');
+
+  function renderCompressionSchematic(f, E, P){
+    clearSvg(svgCompress);
+    var baselineY = 226, maxH = 168, blockX = 78, blockW = 140, topY = baselineY - maxH;
+    var compressedH = maxH * f;
+    var compressedTopY = baselineY - compressedH;
+    var isf = cssVar('--series-isf'), muted = cssVar('--text-3'), ink = cssVar('--text-1');
+
+    // ghost outline: normal (uncompressed) volume
+    svgCompress.appendChild(svgEl('rect', {x:blockX, y:topY, width:blockW, height:maxH, fill:'none', stroke:muted, 'stroke-width':1.5, 'stroke-dasharray':'4,4', rx:3}));
+    var lblNorm = svgEl('text', {x:blockX+blockW+8, y:topY+10, class:'tick-label'});
+    lblNorm.textContent = '정상 부피';
+    svgCompress.appendChild(lblNorm);
+
+    // clip to the compressed rect
+    var clipId = 'compClip';
+    var defs = svgEl('defs', {});
+    var clip = svgEl('clipPath', {id:clipId});
+    clip.appendChild(svgEl('rect', {x:blockX, y:compressedTopY, width:blockW, height:Math.max(compressedH,0)}));
+    defs.appendChild(clip);
+    svgCompress.appendChild(defs);
+
+    // filled compressed volume
+    svgCompress.appendChild(svgEl('rect', {x:blockX, y:compressedTopY, width:blockW, height:Math.max(compressedH,0), fill:isf, opacity:0.3, rx:2}));
+
+    // fixed dot grid (glucose molecules), clipped to current volume -> same density, fewer visible dots
+    var g = svgEl('g', {'clip-path':'url(#'+clipId+')'});
+    var cols = 6, rows = 9, padIn = 12;
+    for (var r=0;r<rows;r++){
+      for (var c=0;c<cols;c++){
+        var cx = blockX+padIn + (blockW-2*padIn) * (c/(cols-1));
+        var cy = topY+padIn + (maxH-2*padIn) * (r/(rows-1));
+        g.appendChild(svgEl('circle', {cx:cx, cy:cy, r:2.6, fill:ink, opacity:0.68}));
+      }
+    }
+    svgCompress.appendChild(g);
+
+    // baseline + labels
+    svgCompress.appendChild(svgEl('line', {x1:blockX-10, x2:blockX+blockW+10, y1:baselineY, y2:baselineY, class:'base-line'}));
+    var lblComp = svgEl('text', {x:blockX, y:baselineY+18, class:'tick-label'});
+    lblComp.textContent = '압박 시 부피 (E='+Math.round(E)+', P='+Math.round(P)+')';
+    svgCompress.appendChild(lblComp);
+    var lblPt = svgEl('text', {x:blockX, y:baselineY+32, class:'tick-label', fill:muted});
+    lblPt.textContent = '↓ 백금층';
+    svgCompress.appendChild(lblPt);
+  }
+
+  function renderCompressionCurve(f){
+    clearSvg(svgCompressCurve);
+    var apparentArr = C_ARR.map(function(c){ return c*f; });
+    var idealArr = C_ARR.map(idealJ);
+    var yMax = 420;
+    function xScale(c){ return PAD.l + (c-C_MIN)/(C_MAX-C_MIN)*PLOT_W; }
+    function yScale(v){ return PAD.t + PLOT_H - (v/yMax)*PLOT_H; }
+    drawAxes(svgCompressCurve, [40,100,200,300,400], function(v){return v;}, [0,100,200,300,400], function(v){return v;},
+      '실제 C_ISF (mg/dL)', '겉보기 농도 (mg/dL)', xScale, yScale);
+    svgCompressCurve.appendChild(svgEl('path', {d:pathFor(C_ARR, idealArr, xScale, yScale), fill:'none', stroke:cssVar('--series-ideal'), 'stroke-width':2, 'stroke-dasharray':'6,4'}));
+    svgCompressCurve.appendChild(svgEl('path', {d:pathFor(C_ARR, apparentArr, xScale, yScale), fill:'none', stroke:cssVar('--series-signal'), 'stroke-width':2.5}));
+    attachCrosshair(svgCompressCurve, ttCompress, C_ARR, [
+      {arr:apparentArr, color:cssVar('--series-signal'), name:'겉보기 농도'},
+      {arr:idealArr, color:cssVar('--series-ideal'), name:'실제(이상) 농도'}
+    ], xScale, yScale, function(c){ return c.toFixed(0)+' mg/dL'; }, function(v){ return v.toFixed(1)+' mg/dL'; });
+  }
+
+  function renderCompression(){
+    var E = state.hardness, P = state.pressure;
+    var f = compressionFactor(E, P);
+    renderCompressionSchematic(f, E, P);
+    renderCompressionCurve(f);
+
+    document.getElementById('c-atten').innerHTML = (100-f*100).toFixed(0) + ' <small>%</small>';
+    var trueRef = 200, apparentRef = trueRef*f;
+    document.getElementById('c-err').innerHTML = (apparentRef-trueRef).toFixed(0) + ' <small>mg/dL</small>';
+
+    var chip = document.getElementById('c-regime');
+    var chipText = document.getElementById('c-regime-text');
+    chip.classList.remove('good','warn','crit');
+    if (f >= 0.85){ chip.classList.add('good'); chipText.textContent = '압박 영향 미미'; }
+    else if (f >= 0.5){ chip.classList.add('warn'); chipText.textContent = '부분 압박 저하'; }
+    else { chip.classList.add('crit'); chipText.textContent = '심각한 압박 저하 (저혈당 오판 위험)'; }
+  }
+
+  // ===================================================================
+  // Panel 6: severe biofouling paradox (glucose channel blocked, water free)
+  // ===================================================================
+  var PARADOX_T = (function(){ var arr=[]; for (var t=0;t<=60;t+=0.5){ arr.push(t); } return arr; })();
+
+  function paradoxCIsf(t, Cspike){
+    var C0 = 100;
+    if (t <= 5) return C0;
+    if (t >= 20) return Cspike;
+    var frac = (t-5)/15;
+    var s = frac*frac*(3-2*frac);
+    return C0 + (Cspike-C0)*s;
+  }
+
+  // dCp/dt = (C_ISF-Cp)*(kDiffEff - kOsmo*Cp)  [diffusive influx net of osmotic solvent-drag efflux]
+  //          - Vmax*Cp/(Km+Cp)                 [Pt consumption]
+  function simulateParadox(sigma, Cspike, Km){
+    // Rate-triggered osmotic efflux: severe fouling blocks glucose diffusion
+    // (kDiffEff shrinks with sigma) but water permeability is preserved, so a
+    // FAST-rising ISF concentration drives water (and the glucose dissolved in
+    // it) OUT of the membrane pocket via osmosis, faster than diffusion can
+    // resupply it. The efflux term is proportional to how quickly ISF glucose
+    // is climbing (dC_ISF/dt), not to the concentration itself - this is what
+    // lets membrane glucose (and thus current) dip even while the true ISF
+    // value is still rising.
+    var C0 = 100, kDiff0 = 0.45, kRate = 0.32, Vmax = 5, dt = 0.02;
+    var kDiffEff = kDiff0 * (1 - sigma);
+    function deriv(cp, cIsf, rate){
+      var diff = kDiffEff * (cIsf - cp);
+      var osmo = sigma * kRate * Math.max(rate, 0);
+      var consume = Vmax*cp/(Km+cp);
+      return diff - osmo - consume;
+    }
+    var cur = C0;
+    for (var w=0; w<1500; w++){ cur += deriv(cur, C0, 0)*dt; if (cur<0) cur=0; } // 30-min warmup at baseline
+    var cpArr=[], jArr=[];
+    var ri = 0, totalSteps = Math.round(60/dt);
+    var prevC = paradoxCIsf(0, Cspike);
+    for (var i=0; i<=totalSteps; i++){
+      var tt = i*dt;
+      if (ri < PARADOX_T.length && tt >= PARADOX_T[ri]-1e-9){
+        cpArr.push(cur); jArr.push(Vmax*cur/(Km+cur)); ri++;
+      }
+      var cIsf = paradoxCIsf(tt, Cspike);
+      var rate = (cIsf - prevC) / dt;
+      prevC = cIsf;
+      cur += deriv(cur, cIsf, rate)*dt;
+      if (cur<0) cur=0;
+    }
+    while (ri < PARADOX_T.length){ cpArr.push(cur); jArr.push(Vmax*cur/(Km+cur)); ri++; }
+    return { cp:cpArr, j:jArr };
+  }
+
+  var PAD_M = { l:44, r:16, t:22, b:26 };
+  var CH_H_M = 150;
+  var PLOT_W_M = CH_W - PAD_M.l - PAD_M.r;
+  var PLOT_H_M = CH_H_M - PAD_M.t - PAD_M.b;
+  var GEOM_M = { padL:PAD_M.l, padT:PAD_M.t, plotW:PLOT_W_M, plotH:PLOT_H_M };
+
+  function drawAxesMini(svg, xTicks, xFmt, yTicks, yFmt, yTitle, xScale, yScale, showX){
+    yTicks.forEach(function(yt){
+      var y = yScale(yt);
+      svg.appendChild(svgEl('line', {x1:PAD_M.l, x2:PAD_M.l+PLOT_W_M, y1:y, y2:y, class:'grid-line'}));
+      var t = svgEl('text', {x:PAD_M.l-8, y:y+3, class:'tick-label', 'text-anchor':'end'});
+      t.textContent = yFmt(yt); svg.appendChild(t);
+    });
+    if (showX){
+      xTicks.forEach(function(xt){
+        var x = xScale(xt);
+        var t = svgEl('text', {x:x, y:PAD_M.t+PLOT_H_M+16, class:'tick-label', 'text-anchor':'middle'});
+        t.textContent = xFmt(xt); svg.appendChild(t);
+      });
+    }
+    svg.appendChild(svgEl('line', {x1:PAD_M.l, x2:PAD_M.l+PLOT_W_M, y1:PAD_M.t+PLOT_H_M, y2:PAD_M.t+PLOT_H_M, class:'base-line'}));
+    if (yTitle){
+      var yt2 = svgEl('text', {x:12, y:11, class:'axis-title'});
+      yt2.textContent = yTitle; svg.appendChild(yt2);
+    }
+  }
+
+  var svgParaC = document.getElementById('svg-para-c');
+  var svgParaJ = document.getElementById('svg-para-j');
+  var ttParaC = document.getElementById('tt-para-c');
+  var ttParaJ = document.getElementById('tt-para-j');
+
+  function renderParadox(){
+    var sigma = state.sigma, Cspike = state.cspike, Km = state.km;
+    var cIsfArr = PARADOX_T.map(function(t){ return paradoxCIsf(t, Cspike); });
+    var normal = simulateParadox(0, Cspike, Km);
+    var fouled = simulateParadox(sigma, Cspike, Km);
+
+    function xScale(t){ return PAD_M.l + (t/60)*PLOT_W_M; }
+
+    // top: ISF concentration
+    clearSvg(svgParaC);
+    var cMax = Cspike*1.08;
+    function yScaleC(v){ return PAD_M.t + PLOT_H_M - (v/cMax)*PLOT_H_M; }
+    drawAxesMini(svgParaC, [0,15,30,45,60], function(v){return v+'분';}, [0,100,200,300,400].filter(function(v){return v<=cMax;}), function(v){return v;}, 'mg/dL', xScale, yScaleC, true);
+    svgParaC.appendChild(svgEl('path', {d:pathFor(PARADOX_T, cIsfArr, xScale, yScaleC), fill:'none', stroke:cssVar('--series-isf'), 'stroke-width':2.5}));
+    attachCrosshair(svgParaC, ttParaC, PARADOX_T, [
+      {arr:cIsfArr, color:cssVar('--series-isf'), name:'ISF 농도'}
+    ], xScale, yScaleC, function(t){ return t.toFixed(0)+'분'; }, function(v){ return v.toFixed(0)+' mg/dL'; }, GEOM_M);
+
+    // bottom: current, normal vs fouled
+    clearSvg(svgParaJ);
+    var jAll = normal.j.concat(fouled.j);
+    var jMax = Math.max.apply(null, jAll) * 1.15;
+    function yScaleJ(v){ return PAD_M.t + PLOT_H_M - (v/jMax)*PLOT_H_M; }
+    var jTicks=[0, Math.round(jMax*0.5*10)/10, Math.round(jMax*10)/10].filter(function(v,i,a){return a.indexOf(v)===i;});
+    drawAxesMini(svgParaJ, [0,15,30,45,60], function(v){return v+'분';}, jTicks, function(v){return v.toFixed(1);}, 'a.u.', xScale, yScaleJ, true);
+    svgParaJ.appendChild(svgEl('path', {d:pathFor(PARADOX_T, normal.j, xScale, yScaleJ), fill:'none', stroke:cssVar('--series-isf'), 'stroke-width':2}));
+    svgParaJ.appendChild(svgEl('path', {d:pathFor(PARADOX_T, fouled.j, xScale, yScaleJ), fill:'none', stroke:cssVar('--series-neg'), 'stroke-width':2.5}));
+    attachCrosshair(svgParaJ, ttParaJ, PARADOX_T, [
+      {arr:fouled.j, color:cssVar('--series-neg'), name:'심각한 파울링'},
+      {arr:normal.j, color:cssVar('--series-isf'), name:'정상막'}
+    ], xScale, yScaleJ, function(t){ return t.toFixed(0)+'분'; }, function(v){ return v.toFixed(2)+' a.u.'; }, GEOM_M);
+
+    // KPIs — the story is not the start->end delta (the dip recovers by
+    // t=60) but the WORST MOMENT: find where fouled current bottoms out,
+    // and report what the true ISF concentration was doing at that instant.
+    var minIdx = 0;
+    for (var mi=1; mi<fouled.j.length; mi++){
+      if (fouled.j[mi] < fouled.j[minIdx]) minIdx = mi;
+    }
+    var startJ = fouled.j[0], minJ = fouled.j[minIdx];
+    var baselineC = cIsfArr[0], cAtMin = cIsfArr[minIdx];
+    var timeAtMin = PARADOX_T[minIdx];
+    var jChangeAtMinPct = ((minJ-startJ)/startJ)*100;
+    var cChangeAtMinPct = ((cAtMin-baselineC)/baselineC)*100;
+    var normalJAtMin = normal.j[minIdx], normalStartJ = normal.j[0];
+    var jNormalAtMinPct = ((normalJAtMin-normalStartJ)/normalStartJ)*100;
+
+    document.getElementById('p-cchange').textContent = timeAtMin.toFixed(0)+'분';
+    var cSub = document.getElementById('p-cchange-sub');
+    if (cSub) cSub.textContent = '그 시점 ISF ' + cAtMin.toFixed(0) + ' mg/dL (+' + cChangeAtMinPct.toFixed(0) + '%)';
+
+    document.getElementById('p-jchange').textContent = (jChangeAtMinPct>=0?'+':'')+jChangeAtMinPct.toFixed(0)+'%';
+    var jSub = document.getElementById('p-jchange-sub');
+    if (jSub) jSub.textContent = startJ.toFixed(2)+' → '+minJ.toFixed(2)+' a.u.';
+
+    document.getElementById('p-jnormal').textContent = (jNormalAtMinPct>=0?'+':'')+jNormalAtMinPct.toFixed(0)+'%';
+    var nSub = document.getElementById('p-jnormal-sub');
+    if (nSub) nSub.textContent = '정상막이면 ' + normalJAtMin.toFixed(2) + ' a.u.';
+
+    var chip = document.getElementById('p-risk');
+    var chipText = document.getElementById('p-risk-text');
+    chip.classList.remove('good','warn','crit');
+    var realDip = minJ < startJ*0.98;
+    var concElevated = cAtMin > baselineC*1.3;
+    if (realDip && concElevated){
+      chip.classList.add('crit'); chipText.textContent = '농도↑ 전류↓ — 저혈당 오판 위험';
+    } else if (realDip){
+      chip.classList.add('warn'); chipText.textContent = '신호 정체·둔화';
+    } else {
+      chip.classList.add('good'); chipText.textContent = '신호가 농도를 추종';
+    }
+  }
+
+  // ---------------- KPI + render orchestration ----------------
+  function renderKPIs(){
+    var Da = state.daEff, Km = state.km;
+    var lin = linearityIndex(Da, Km);
+    var sens = sensitivityIndex(Da);
+
+    document.getElementById('k-da').textContent = fmtDa(Da);
+    document.getElementById('k-da-sub').textContent = '설계 ' + fmtDa(state.daDesign) + ' × 활성도 ' + state.activity + '%';
+    document.getElementById('k-lin').textContent = lin.index.toFixed(0) + '%';
+    document.getElementById('k-lin-sub').textContent = '최대 편차 ' + lin.maxDev.toFixed(1) + '%';
+    document.getElementById('k-sens').textContent = sens.toFixed(0) + '%';
+
+    var chip = document.getElementById('k-regime');
+    var chipText = document.getElementById('k-regime-text');
+    var chipSub = document.getElementById('k-regime-sub');
+    chip.classList.remove('good','warn','crit');
+    if (Da >= 10){
+      chip.classList.add('good'); chipText.textContent = '확산지배 (안정)';
+      chipSub.textContent = '신호가 Pt 활성 변화에 둔감';
+    } else if (Da >= 1){
+      chip.classList.add('warn'); chipText.textContent = '혼합 영역 (주의)';
+      chipSub.textContent = '파울링 진행 시 선형성 저하 위험';
+    } else {
+      chip.classList.add('crit'); chipText.textContent = '반응지배 (불안정)';
+      chipSub.textContent = 'Pt 활성 의존적, 고농도 포화';
+    }
+  }
+
+  function renderAll(){
+    state.daDesign = daFromSlider(parseFloat(elDa.value));
+    state.km = parseFloat(elKm.value);
+    state.activity = parseFloat(elAct.value);
+    state.probe = parseFloat(elProbe.value);
+    state.daEff = state.daDesign * (state.activity/100);
+
+    document.getElementById('v-da').textContent = 'Da ≈ ' + fmtDa(state.daDesign);
+    document.getElementById('v-km').textContent = fmt0(state.km) + ' mg/dL';
+    document.getElementById('v-act').textContent = fmt0(state.activity) + ' %';
+    document.getElementById('v-probe').textContent = fmt0(state.probe) + ' mg/dL';
+
+    renderKPIs();
+    renderProfile();
+    renderCalib();
+    renderErr();
+    renderSweep();
+    renderParadox(); // depends on shared state.km
+  }
+
+  function syncCompression(){
+    state.hardness = parseFloat(elHard.value);
+    state.pressure = parseFloat(elPress.value);
+    document.getElementById('v-hard').textContent = fmt0(state.hardness);
+    document.getElementById('v-press').textContent = fmt0(state.pressure);
+    renderCompression();
+  }
+
+  function syncParadox(){
+    state.sigma = parseFloat(elSigma.value)/100;
+    state.cspike = parseFloat(elCspike.value);
+    document.getElementById('v-sigma').textContent = Math.round(state.sigma*100) + ' %';
+    document.getElementById('v-cspike').textContent = fmt0(state.cspike) + ' mg/dL';
+    renderParadox();
+  }
+
+  [elDa, elKm, elAct, elProbe].forEach(function(el){
+    el.addEventListener('input', renderAll);
+  });
+  [elHard, elPress].forEach(function(el){ el.addEventListener('input', syncCompression); });
+  [elSigma, elCspike].forEach(function(el){ el.addEventListener('input', syncParadox); });
+
+  document.getElementById('preset-diff').addEventListener('click', function(){ elDa.value = sliderFromDa(30); renderAll(); });
+  document.getElementById('preset-mix').addEventListener('click', function(){ elDa.value = sliderFromDa(3); renderAll(); });
+  document.getElementById('preset-rxn').addEventListener('click', function(){ elDa.value = sliderFromDa(0.3); renderAll(); });
+
+  // re-render on theme change so cssVar-derived stroke colors stay correct
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(){
+    renderAll(); renderCompression();
+  });
+
+  renderAll();
+  syncCompression();
+  syncParadox();
+})();
+</script>
+
+</body>
+</html>
